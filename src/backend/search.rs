@@ -1,8 +1,9 @@
-use crate::backend::{self, models::Embedder, telegram::TelegramClient, types::WorkingChat};
+use crate::backend::{self, models::Embedder, telegram::TelegramClient, types::WorkingChat, database::Database};
 
 pub struct SearchEngine {
     embedder: Embedder,
     telegram_client: TelegramClient,
+    database: Database,
     working_chats: Vec<WorkingChat>
 }
 
@@ -13,11 +14,13 @@ impl SearchEngine {
         
         let embedder = backend::models::Embedder::initialize("models/model.onnx")?;
         let telegram_client = TelegramClient::intialize("session/session.db", api_id).await?;
+        let database = Database::initialize("data/database.db")?;
 
         Ok(SearchEngine {
             embedder,
             telegram_client,
             working_chats: Vec::new(),
+            database
         })
     }
 }

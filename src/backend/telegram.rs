@@ -10,6 +10,8 @@ use ort::value::{Tensor, Value};
 use image::ImageReader;
 use std::path::Path;
 use std::sync::Arc;
+use grammers_client::client::LoginToken;
+use grammers_client::peer::User;
 
 
 pub struct TelegramClient {
@@ -18,7 +20,6 @@ pub struct TelegramClient {
 
 impl TelegramClient {
     pub async fn intialize(session_path: impl AsRef<Path>, telegram_api_id: i32) -> anyhow::Result<Self> {
-        
         let session = Arc::new(SqliteSession::open(session_path).await?);
         let pool = SenderPool::new(Arc::clone(&session), telegram_api_id);
         let client = Client::new(pool.handle);
@@ -31,5 +32,17 @@ impl TelegramClient {
         Ok(TelegramClient {
             client
         })
+    }
+    pub async fn request_login_code(&self, api_hash: String, phone: String) -> anyhow::Result<LoginToken> {
+        let token = self.client.request_login_code(&phone, &api_hash).await?;
+        Ok(token)
+    }
+    pub async fn sign_in(&self, code: &str, token: &LoginToken) -> anyhow::Result<()> {
+        let _user = self.client.sign_in(token, code).await?;
+        Ok(())
+    }
+    pub async fn is_authorized(&self) -> anyhow::Result<bool> {
+        let bool = self.client.is_authorized().await?;
+        Ok(bool)
     }
 }

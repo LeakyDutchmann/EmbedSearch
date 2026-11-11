@@ -13,6 +13,8 @@ use std::sync::Arc;
 use grammers_client::client::LoginToken;
 use grammers_client::peer::User;
 
+use crate::backend::types::WorkingChat;
+
 
 pub struct TelegramClient {
     pub client: Client
@@ -44,5 +46,17 @@ impl TelegramClient {
     pub async fn is_authorized(&self) -> anyhow::Result<bool> {
         let bool = self.client.is_authorized().await?;
         Ok(bool)
+    }
+    pub async fn get_available_chats(&self) -> anyhow::Result<Vec<WorkingChat>> {
+        let mut chats: Vec<WorkingChat> = Vec::new();
+
+        let mut dialogs = self.client.iter_dialogs();
+        while let Some(dialog) = dialogs.next().await? {
+            let peer = dialog.peer();
+            chats.push(WorkingChat {
+                name: peer.name().unwrap_or("Unknown").to_string()
+            });
+        }
+        Ok(chats)
     }
 }

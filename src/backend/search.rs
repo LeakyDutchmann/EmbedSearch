@@ -1,4 +1,4 @@
-use crate::backend::{self, models::Embedder, telegram::TelegramClient, workingchat::{WorkingChat, ChatId, Chat}, database::Database};
+use crate::backend::{self, database::Database, embedding::{Embedder, IndexedImage, DbIndexedImage}, telegram::TelegramClient, types::ChatId, workingchat::{Chat, WorkingChat}};
 
 use grammers_client::client::LoginToken;
 use grammers_client::peer::User;
@@ -18,7 +18,7 @@ impl SearchEngine {
         let api_id: i32 = std::env::var("TELEGRAM_API_ID")?.parse()?;
         
         
-        let embedder = backend::models::Embedder::initialize("models/model.onnx")?;
+        let embedder = backend::embedding::Embedder::initialize("models/model.onnx")?;
         let telegram_client = TelegramClient::intialize("session/session.db", api_id).await?;
         let database = Database::initialize("data/database.db")?;
 
@@ -61,7 +61,31 @@ impl SearchEngine {
 
         for img in indexed {
             if let Some(chat) = self.working_chats.get_mut(&img.chat_id) {
-                chat.indexed_images.push(img);
+                chat.indexed_images.insert(img.msg_id, IndexedImage {embedding: img.embedding});
+            }
+        }
+        
+        Ok(())
+    }
+    pub async fn index_chats(&mut self) -> anyhow::Result<()> {
+        for (chat_id, chat) in &mut self.working_chats {
+            let images = self.telegram_client.get_unindexed_images(chat).await?;
+
+            let raw_indexed = self.embedder.index_images(images)?;
+            let mut indexed = Vec::new();
+
+            for raw in raw_indexed {
+                indexed.push( DbIndexedImage {
+                    chat_id: chat_id.clone(),
+                    msg_id: raw.msg_id,
+                    embedding: raw.embedding,
+                });
+            }
+
+            self.database.save_indexed(&indexed)?;
+
+            for img in indexed {
+                chat.indexed_images.insert(img.msg_id.clone(), IndexedImage { embedding: img.embedding });
             }
         }
         Ok(())

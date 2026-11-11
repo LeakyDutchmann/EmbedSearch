@@ -7,17 +7,84 @@ use ndarray::{Array4, Array2};
 use ort::environment::Environment;
 use ort::value::{Tensor, Value};
 use image::ImageReader;
+use std::path::Path;
 
-use crate::backend::workingchat::ChatId;
-
+use crate::backend::types::{ChatId, MessageId, PendingImage};
 
 pub struct IndexedImage {
-    pub msg_id: i32,
-    pub chat_id: ChatId,
     pub embedding: Box<[f32]>,
 }
 
-pub fn cosine_similarity(emb_1: &[f32], emb_2: &[f32]) -> f32 {
+pub struct DbIndexedImage {
+    pub chat_id: ChatId,
+    pub msg_id: MessageId,
+    pub embedding: Box<[f32]>,
+}
+
+pub struct RawIndexedImage {
+    pub msg_id: MessageId,
+    pub embedding: Box<[f32]>,
+}
+
+pub struct Embedder {
+    pub session: ort::session::Session, 
+}           
+
+impl Embedder {
+    pub fn initialize(model_path: impl AsRef<Path>) -> anyhow::Result<Self> {
+        let env = ort::init()
+            .with_name("EmbedSearch")
+            .build()?;
+        let session = ort::session::Session::builder(&env)?.commit_from_file(model_path)?;
+    
+        Ok(Embedder {
+            session
+        })
+    }
+    pub fn index_images(&mut self, pending: Vec<PendingImage>) -> anyhow::Result<Vec<RawIndexedImage>> {
+        let mut embeds: Vec<RawIndexedImage> = Vec::new();
+        
+        let input_ids = Array2::<i64>::zeros((1, 1));
+        let attention_mask = Array2::<i64>::ones((1, 1));
+        let input_ids = Tensor::from_array(input_ids)?;
+        let attention_mask = Tensor::from_array(attention_mask)?;
+        
+        for image in pending {
+            let preprocessed = preprocess_img(image.img);
+            let Ok(pixel_values) = Tensor::from_array(preprocessed) else {
+                continue;
+            };
+
+            let result = self.session.run(ort::inputs![
+                "input_ids" => input_ids.clone(),
+                "pixel_values" => pixel_values,
+                "attention_mask" => attention_mask.clone()
+            ]);
+
+            let Ok(outputs) = result else {
+                println!("Failed to extract output from AI. Err {:?}", result.err());
+                continue;
+            };
+            
+            let val = &outputs["image_embeds"];
+            let tensor = val.try_extract_tensor::<f32>();
+            
+            let Ok(tensor) = tensor else {
+                println!("Failed to extract tensor from output {:?}", tensor.err());
+                continue; 
+            };
+            let emb = tensor.1.to_vec().into_boxed_slice();
+            embeds.push(RawIndexedImage {
+                embedding: emb,
+                msg_id: image.msg_id,
+            });
+        }
+
+        Ok(embeds)
+    }
+}
+
+fn cosine_similarity(emb_1: &[f32], emb_2: &[f32]) -> f32 {
     let dot: f32 = emb_1.iter()
         .zip(emb_2)
         .map(|(x, y)| x * y)
@@ -36,7 +103,7 @@ pub fn cosine_similarity(emb_1: &[f32], emb_2: &[f32]) -> f32 {
     dot / (norm_1 * norm_2)
 }
 
-pub fn preprocess_img(img: DynamicImage) -> Array4<f32>{
+fn preprocess_img(img: DynamicImage) -> Array4<f32>{
 
     let (w, h) = img.dimensions();
     println!("dimensions: width: {}, height: {}", w, h);

@@ -15,19 +15,21 @@ use std::sync::Arc;
 
 use grammers_session::types::PeerRef;
 use grammers_client::peer::Peer;
+use std::collections::HashMap;
 use crate::backend::embedding::IndexedImage;
+use crate::backend::types::{ChatId, MessageId};
 
 pub struct Chat {
     pub chat_id: ChatId,
     pub name: String,
     pub peer_ref: PeerRef,
-    pub indexed_images: Vec<IndexedImage>
 }
+
 
 pub struct WorkingChat {
     pub name: String,
     pub peer_ref: PeerRef,
-    pub indexed_images: Vec<IndexedImage>
+    pub indexed_images: HashMap<MessageId, IndexedImage>
 }
 
 impl WorkingChat {
@@ -35,23 +37,9 @@ impl WorkingChat {
         WorkingChat {
             name: chat.name,
             peer_ref: chat.peer_ref,
-            indexed_images: chat.indexed_images
+            indexed_images: HashMap::new()
         }
     }
 }
 
-#[derive(Eq, Hash, PartialEq, Clone)]
-pub struct ChatId {
-    pub id: i64
-}
 
-impl ChatId {
-    pub fn from_peer_ref(peer_ref: PeerRef) -> anyhow::Result<Self> {
-        if let Some(id) = peer_ref.id.bare_id() {
-            Ok(ChatId {id})
-        } else {
-            Err(anyhow!("Failed to get peer id"))
-        }
-        
-    }
-}

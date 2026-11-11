@@ -4,4 +4,4 @@ pub mod embedding;
 pub mod database;
 pub mod models;
 pub mod utils;
-pub mod types;
+pub mod workingchat;

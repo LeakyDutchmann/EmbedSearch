@@ -1,4 +1,5 @@
 
+use anyhow::anyhow;
 use grammers_client::{Client, media::Media};
 use grammers_session::Session;
 use grammers_session::storages::SqliteSession;
@@ -8,12 +9,13 @@ use ndarray::{Array4, Array2};
 use ort::environment::Environment;
 use ort::value::{Tensor, Value};
 use image::ImageReader;
+use std::any::Any;
 use std::path::Path;
 use std::sync::Arc;
 use grammers_client::client::LoginToken;
 use grammers_client::peer::User;
 
-use crate::backend::types::WorkingChat;
+use crate::backend::workingchat::{Chat, ChatId};
 
 
 pub struct TelegramClient {
@@ -47,15 +49,25 @@ impl TelegramClient {
         let bool = self.client.is_authorized().await?;
         Ok(bool)
     }
-    pub async fn get_available_chats(&self) -> anyhow::Result<Vec<WorkingChat>> {
-        let mut chats: Vec<WorkingChat> = Vec::new();
+    pub async fn get_available_chats(&self) -> anyhow::Result<Vec<Chat>> {
+        let mut chats: Vec<Chat> = Vec::new();
 
         let mut dialogs = self.client.iter_dialogs();
         while let Some(dialog) = dialogs.next().await? {
+            
             let peer = dialog.peer();
-            chats.push(WorkingChat {
-                name: peer.name().unwrap_or("Unknown").to_string()
+            let peer_ref = match peer.to_ref().await {
+                Ok(Some(p_r)) => p_r,
+                _ => {return Err(anyhow!("Failed to get peer reference"))}
+            };
+            
+            chats.push(Chat {
+                chat_id: ChatId::from_peer_ref(peer_ref.clone())?,
+                peer_ref,
+                name: peer.name().unwrap_or("Unknown").to_string(),
+                indexed_images: Vec::new(),
             });
+            
         }
         Ok(chats)
     }

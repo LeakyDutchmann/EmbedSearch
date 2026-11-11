@@ -8,10 +8,12 @@ use ort::environment::Environment;
 use ort::value::{Tensor, Value};
 use image::ImageReader;
 
+use crate::backend::workingchat::ChatId;
+
 
 pub struct IndexedImage {
     pub msg_id: i32,
-    pub chat_id: i32,
+    pub chat_id: ChatId,
     pub embedding: Box<[f32]>,
 }
 

@@ -1,13 +1,14 @@
-use crate::backend::{self, models::Embedder, telegram::TelegramClient, types::WorkingChat, database::Database};
+use crate::backend::{self, models::Embedder, telegram::TelegramClient, workingchat::{WorkingChat, ChatId, Chat}, database::Database};
 
 use grammers_client::client::LoginToken;
 use grammers_client::peer::User;
+use std::collections::HashMap;
 
 pub struct SearchEngine {
     embedder: Embedder,
     telegram_client: TelegramClient,
     database: Database,
-    working_chats: Vec<WorkingChat>,
+    working_chats: HashMap<ChatId, WorkingChat>,
     login_token: Option<LoginToken>,
 }
 
@@ -24,7 +25,7 @@ impl SearchEngine {
         Ok(SearchEngine {
             embedder,
             telegram_client,
-            working_chats: Vec::new(),
+            working_chats: HashMap::new(),
             database,
             login_token: None,
         })
@@ -47,12 +48,22 @@ impl SearchEngine {
         Ok(bool)
     }
 
-    pub async fn get_available_chats(&self) -> anyhow::Result<Vec<WorkingChat>> {
+    pub async fn get_available_chats(&self) -> anyhow::Result<Vec<Chat>> {
         self.telegram_client.get_available_chats().await
     }
-    pub fn set_working_chats(&mut self, mut chats: Vec<WorkingChat>) {
+    pub fn set_working_chats(&mut self, mut chats: Vec<Chat>) {
         while let Some(chat) = chats.pop() {
-            self.working_chats.push(chat);
+            self.working_chats.insert(chat.chat_id.clone(), WorkingChat::from_chat(chat));
         }
+    }
+    pub async fn load_indexed(&mut self) -> anyhow::Result<()> {
+        let indexed = self.database.load_indexed()?;
+
+        for img in indexed {
+            if let Some(chat) = self.working_chats.get_mut(&img.chat_id) {
+                chat.indexed_images.push(img);
+            }
+        }
+        Ok(())
     }
 }

@@ -8,12 +8,13 @@ use ort::environment::Environment;
 use ort::value::{Tensor, Value};
 use image::ImageReader;
 use std::path::Path;
+use rusqlite::params;
 use std::sync::Arc;
 
 use rusqlite::Connection;
 
-use crate::backend::embedding::IndexedImage;
-use crate::backend::workingchat::ChatId;
+use crate::backend::embedding::{self, DbIndexedImage, RawIndexedImage};
+use crate::backend::types::{ChatId, MessageId};
 
 pub struct Database {
     connection: Connection
@@ -35,11 +36,11 @@ impl Database {
             connection
         })
     }
-    pub fn load_indexed(&self) -> anyhow::Result<Vec<IndexedImage>> {
+    pub fn load_indexed(&self) -> anyhow::Result<Vec<DbIndexedImage>> {
         let mut stmt = self.connection.prepare("SELECT msg_id, chat_id, embedding FROM images")?;
 
         let rows = stmt.query_map([], |row| {
-            let msg_id = row.get(0)?;
+            let msg_id: i32 = row.get(0)?;
             let chat_id: i64 = row.get(1)?;
             let bytes: Vec<u8> = row.get(2)?;
 
@@ -50,8 +51,8 @@ impl Database {
                 ))
                 .collect();
             
-            Ok(IndexedImage {
-                msg_id,
+            Ok(DbIndexedImage {
+                msg_id: MessageId { id: msg_id },
                 chat_id: ChatId{ id: chat_id},
                 embedding: embedding.into_boxed_slice()
             })
@@ -63,5 +64,24 @@ impl Database {
         }
 
         Ok(result)
+    }
+    pub fn save_indexed(&mut self, indexed: &Vec<DbIndexedImage>) -> anyhow::Result<()> {
+        let trans = self.connection.transaction()?;
+        
+        for img in indexed {
+            let bytes: &[u8] = bytemuck::cast_slice(
+                img.embedding.as_ref()
+            );
+            let msg_id = img.msg_id.id;
+            let chat_id = img.chat_id.id;
+            
+            trans.execute(
+              "INSERT INTO images(msg_id, chat_id, embedding) values(?1, ?2, ?3)",
+              params![msg_id, chat_id, bytes]
+            )?;
+        }
+        
+        trans.commit()?;
+        Ok(())
     }
 }

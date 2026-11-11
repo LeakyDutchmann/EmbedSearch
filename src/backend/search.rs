@@ -46,4 +46,13 @@ impl SearchEngine {
         let bool = self.telegram_client.is_authorized().await?;
         Ok(bool)
     }
+
+    pub async fn get_available_chats(&self) -> anyhow::Result<Vec<WorkingChat>> {
+        self.telegram_client.get_available_chats().await
+    }
+    pub fn set_working_chats(&mut self, mut chats: Vec<WorkingChat>) {
+        while let Some(chat) = chats.pop() {
+            self.working_chats.push(chat);
+        }
+    }
 }

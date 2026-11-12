@@ -1,4 +1,4 @@
-use std::{fs::{self}, path::PathBuf};
+use std::path::PathBuf;
 use anyhow::anyhow;
 
 pub fn app_dir() -> anyhow::Result<PathBuf> {

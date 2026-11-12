@@ -75,25 +75,6 @@ impl Embedder {
     }
 }
 
-fn cosine_similarity(emb_1: &[f32], emb_2: &[f32]) -> f32 {
-    let dot: f32 = emb_1.iter()
-        .zip(emb_2)
-        .map(|(x, y)| x * y)
-        .sum();
-
-    let norm_1: f32 = emb_1.iter()
-        .map(|x| x * x)
-        .sum::<f32>()
-        .sqrt();
-
-    let norm_2: f32 = emb_2.iter()
-        .map(|y| y * y)
-        .sum::<f32>()
-        .sqrt();
-
-    dot / (norm_1 * norm_2)
-}
-
 fn preprocess_img(img: DynamicImage) -> Array4<f32>{
 
     let (w, h) = img.dimensions();

@@ -1,6 +1,6 @@
 use std::path::Path;
-use rusqlite::params;
-use rusqlite::Connection;
+use libsql::params;
+use libsql::{Connection, Builder};
 
 use crate::backend::embedding::DbIndexedImage;
 use crate::backend::types::{ChatId, MessageId};
@@ -10,8 +10,10 @@ pub struct Database {
 }
 
 impl Database {
-    pub fn initialize(database_path: impl AsRef<Path> ) -> anyhow::Result<Self> {
-        let connection = Connection::open(database_path)?;
+    pub async fn initialize(database_path: impl AsRef<Path> ) -> anyhow::Result<Self> {
+        let db = Builder::new_local(database_path).build().await?;
+        
+        let connection = db.connect()?;
 
         connection.execute("CREATE TABLE IF NOT EXISTS images (
             embedding BLOB NOT NULL,
@@ -19,16 +21,18 @@ impl Database {
             chat_id INT NOT NULL,
             
             PRIMARY KEY (chat_id, msg_id)
-        );", ())?;
+        );", ()).await?;
         
         Ok(Database {
             connection
         })
     }
-    pub fn load_indexed(&self) -> anyhow::Result<Vec<DbIndexedImage>> {
-        let mut stmt = self.connection.prepare("SELECT msg_id, chat_id, embedding FROM images")?;
-
-        let rows = stmt.query_map([], |row| {
+    pub async fn load_indexed(&self) -> anyhow::Result<Vec<DbIndexedImage>> {
+        let mut rows = self.connection.query("SELECT msg_id, chat_id, embedding FROM images", ()).await?;
+        
+        let mut result = Vec::new();
+        
+        while let Some(row) = rows.next().await? {
             let msg_id: i32 = row.get(0)?;
             let chat_id: i64 = row.get(1)?;
             let bytes: Vec<u8> = row.get(2)?;
@@ -40,22 +44,17 @@ impl Database {
                 ))
                 .collect();
             
-            Ok(DbIndexedImage {
+            result.push(DbIndexedImage {
                 msg_id: MessageId { id: msg_id },
                 chat_id: ChatId{ id: chat_id},
                 embedding: embedding.into_boxed_slice()
-            })
-        })?;
-        let mut result = Vec::new();
-
-        for row in rows {
-            result.push(row?);
+            });
         }
 
         Ok(result)
     }
-    pub fn save_indexed(&mut self, indexed: &Vec<DbIndexedImage>) -> anyhow::Result<()> {
-        let trans = self.connection.transaction()?;
+    pub async fn save_indexed(&mut self, indexed: &Vec<DbIndexedImage>) -> anyhow::Result<()> {
+        let trans = self.connection.transaction().await?;
         
         for img in indexed {
             let bytes: &[u8] = bytemuck::cast_slice(
@@ -67,10 +66,10 @@ impl Database {
             trans.execute(
               "INSERT INTO images(msg_id, chat_id, embedding) values(?1, ?2, ?3)",
               params![msg_id, chat_id, bytes]
-            )?;
+            ).await?;
         }
         
-        trans.commit()?;
+        trans.commit().await?;
         Ok(())
     }
 }

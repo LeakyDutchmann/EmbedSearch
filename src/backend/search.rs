@@ -34,7 +34,7 @@ impl SearchEngine {
         
         let embedder = backend::embedding::Embedder::initialize("models/model.onnx")?;
         let telegram_client = TelegramClient::intialize("session/session.db", api_id).await?;
-        let database = Database::initialize("data/database.db")?;
+        let database = Database::initialize("data/database.db").await?;
 
         Ok(SearchEngine {
             embedder,
@@ -71,7 +71,7 @@ impl SearchEngine {
         }
     }
     pub async fn load_indexed(&mut self) -> anyhow::Result<()> {
-        let indexed = self.database.load_indexed()?;
+        let indexed = self.database.load_indexed().await?;
 
         for img in indexed {
             if let Some(chat) = self.working_chats.get_mut(&img.chat_id) {
@@ -96,7 +96,7 @@ impl SearchEngine {
                 });
             }
 
-            self.database.save_indexed(&indexed)?;
+            self.database.save_indexed(&indexed).await?;
 
             for img in indexed {
                 chat.indexed_images.insert(img.msg_id.clone(), IndexedImage { embedding: img.embedding });

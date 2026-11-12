@@ -1,7 +1,16 @@
-use crate::backend::{self, database::Database, embedding::{Embedder, IndexedImage, DbIndexedImage}, telegram::TelegramClient, types::ChatId, workingchat::{Chat, WorkingChat}};
+use crate::backend::{
+    self,
+    database::Database,
+    embedding::{Embedder, IndexedImage, DbIndexedImage},
+    telegram::TelegramClient,
+    types::{ChatId, MessageId},
+    workingchat::{Chat, WorkingChat}
+};
 
+use anyhow::anyhow;
 use grammers_client::client::LoginToken;
 use grammers_client::peer::User;
+use image::DynamicImage;
 use std::collections::HashMap;
 
 pub struct SearchEngine {
@@ -10,6 +19,11 @@ pub struct SearchEngine {
     database: Database,
     working_chats: HashMap<ChatId, WorkingChat>,
     login_token: Option<LoginToken>,
+}
+
+pub struct SearchResult {
+    msg_id: MessageId,
+    similarity: f32,
 }
 
 impl SearchEngine {
@@ -90,4 +104,50 @@ impl SearchEngine {
         }
         Ok(())
     }
+    pub fn search_image(&mut self, img: DynamicImage, chat_id: ChatId) -> anyhow::Result<Vec<SearchResult>> {
+        let embeddding = self.embedder.create_embedding(img)?;
+
+        let Some(working_chat) = self.working_chats.get(&chat_id) else {
+            return Err(anyhow!("Failed to search image: CHAT NOT FOUND"))
+        };
+
+        let mut result = Vec::new();
+
+        for (msg_id, indexed) in &working_chat.indexed_images {
+            let similarity = cosine_similarity(&embeddding, &indexed.embedding);
+            result.push(SearchResult {
+                msg_id: msg_id.clone(),
+                similarity 
+            });
+        }
+
+        result.sort_by(|a, b| {
+            b.similarity
+                .partial_cmp(&a.similarity)
+                .unwrap()
+        });
+
+        result.retain(|a| a.similarity > 0.5);
+
+        Ok(result)
+    }
+}
+
+fn cosine_similarity(emb_1: &[f32], emb_2: &[f32]) -> f32 {
+    let dot: f32 = emb_1.iter()
+        .zip(emb_2)
+        .map(|(x, y)| x * y)
+        .sum();
+
+    let norm_1: f32 = emb_1.iter()
+        .map(|x| x * x)
+        .sum::<f32>()
+        .sqrt();
+
+    let norm_2: f32 = emb_2.iter()
+        .map(|y| y * y)
+        .sum::<f32>()
+        .sqrt();
+
+    dot / (norm_1 * norm_2)
 }

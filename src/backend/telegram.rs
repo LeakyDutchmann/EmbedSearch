@@ -1,5 +1,6 @@
 
 use anyhow::anyhow;
+use egui::Image;
 use grammers_client::tl::enums::Message;
 use crate::backend;
 use grammers_client::media::Downloadable;
@@ -20,6 +21,7 @@ use grammers_client::peer::User;
 use grammers_session::types::PeerRef;
 use grammers_client::media::Photo;
 use backend::workingchat::{Chat, WorkingChat};
+use std::collections::HashMap;
 use backend::types::{ChatId, PendingImage, MessageId};
 
 
@@ -115,6 +117,46 @@ impl TelegramClient {
             }
         }
         
+        Ok(images)
+    }
+    pub async fn download_images(&self, peer_ref: PeerRef, msg_ids: &[MessageId] ) -> anyhow::Result<HashMap<MessageId, DynamicImage>> {
+        let message_ids: Vec<i32> = msg_ids.iter().map(|s| s.id).collect();
+        let messages = self.client.get_messages_by_id(peer_ref, &message_ids).await?;
+
+        let messages: Vec<grammers_client::message::Message> = messages.into_iter().filter(|m| m.is_some()).map(|m| m.unwrap()).collect();
+        let count = message_ids.len() - messages.len();
+        println!("Lost {} messages", count);
+
+        let mut images: HashMap<MessageId, DynamicImage> = HashMap::new();
+        
+        let mut bytes: Vec<u8> = Vec::new();
+        for msg in messages {
+            let Some(media) = msg.media() else {
+                continue;
+            };
+
+            let id = msg.id();
+            
+            bytes.clear();
+            match media {
+                Media::Photo(photo) => {
+                    let mut download = self.client.iter_download(&photo);
+
+                    while let Some(chunk) = download.next().await? {
+                        bytes.extend(chunk);
+                    }
+                    
+                    let Ok(img) = image::load_from_memory(&bytes) else {
+                        continue;
+                    };
+                    
+                    images.insert(MessageId { id }, img);
+                },
+                _ => {
+                    continue;
+                }
+            }
+        }
         Ok(images)
     }
 }

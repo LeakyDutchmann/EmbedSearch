@@ -44,43 +44,34 @@ impl Embedder {
     pub fn index_images(&mut self, pending: Vec<PendingImage>) -> anyhow::Result<Vec<RawIndexedImage>> {
         let mut embeds: Vec<RawIndexedImage> = Vec::new();
         
-        let input_ids = Array2::<i64>::zeros((1, 1));
-        let attention_mask = Array2::<i64>::ones((1, 1));
-        let input_ids = Tensor::from_array(input_ids)?;
-        let attention_mask = Tensor::from_array(attention_mask)?;
-        
         for image in pending {
-            let preprocessed = preprocess_img(image.img);
-            let Ok(pixel_values) = Tensor::from_array(preprocessed) else {
-                continue;
-            };
-
-            let result = self.session.run(ort::inputs![
-                "input_ids" => input_ids.clone(),
-                "pixel_values" => pixel_values,
-                "attention_mask" => attention_mask.clone()
-            ]);
-
-            let Ok(outputs) = result else {
-                println!("Failed to extract output from AI. Err {:?}", result.err());
-                continue;
-            };
-            
-            let val = &outputs["image_embeds"];
-            let tensor = val.try_extract_tensor::<f32>();
-            
-            let Ok(tensor) = tensor else {
-                println!("Failed to extract tensor from output {:?}", tensor.err());
-                continue; 
-            };
-            let emb = tensor.1.to_vec().into_boxed_slice();
+            let Ok(embedding) = self.create_embedding(image.img) else {continue};
             embeds.push(RawIndexedImage {
-                embedding: emb,
+                embedding,
                 msg_id: image.msg_id,
             });
         }
 
         Ok(embeds)
+    }
+    pub fn create_embedding(&mut self, img: DynamicImage) -> anyhow::Result<Box<[f32]>> {
+        let preprocessed = preprocess_img(img);
+        let input_ids = Array2::<i64>::zeros((1, 1));
+        let attention_mask = Array2::<i64>::ones((1, 1));
+
+        let input_ids = Tensor::from_array(input_ids)?;
+        let attention_mask = Tensor::from_array(attention_mask)?;
+        let pixel_values = Tensor::from_array(preprocessed)?;
+        
+        let outputs = self.session.run(ort::inputs![
+            "input_ids" => input_ids.clone(),
+            "pixel_values" => pixel_values,
+            "attention_mask" => attention_mask.clone()
+        ])?;
+
+        let val = &outputs["image_embeds"];
+        let tensor = val.try_extract_tensor::<f32>()?;
+        Ok(tensor.1.to_vec().into_boxed_slice())
     }
 }
 

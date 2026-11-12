@@ -9,7 +9,6 @@ use crate::backend::{
 
 use anyhow::anyhow;
 use grammers_client::client::LoginToken;
-use grammers_client::peer::User;
 use image::DynamicImage;
 use std::collections::HashMap;
 

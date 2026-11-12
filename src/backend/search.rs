@@ -22,6 +22,7 @@ pub struct SearchEngine {
 }
 
 pub struct SearchResult {
+    chat_id: ChatId,
     msg_id: MessageId,
     similarity: f32,
 }
@@ -116,6 +117,7 @@ impl SearchEngine {
         for (msg_id, indexed) in &working_chat.indexed_images {
             let similarity = cosine_similarity(&embeddding, &indexed.embedding);
             result.push(SearchResult {
+                chat_id: chat_id.clone(),
                 msg_id: msg_id.clone(),
                 similarity 
             });
@@ -130,6 +132,14 @@ impl SearchEngine {
         result.retain(|a| a.similarity > 0.5);
 
         Ok(result)
+    }
+    pub async fn get_images(&self, chat_id: ChatId, msg_ids: &[MessageId]) -> anyhow::Result<HashMap<MessageId, DynamicImage>> {
+        let Some(working_chat) = self.working_chats.get(&chat_id) else { 
+            return Err(anyhow!("Failed to upload image. CHAT NOT FOUND"))
+        };
+        
+        let images = self.telegram_client.download_images(working_chat.peer_ref.clone(), msg_ids).await?;
+        Ok(images)
     }
 }
 

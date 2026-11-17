@@ -30,7 +30,7 @@ enum AuthState {
 pub struct App {
     backend: BackEnd,
 
-    state: AuthState,
+    state: AppState,
     
     phone_input: String,
 
@@ -38,6 +38,16 @@ pub struct App {
     code: Option<String>,
 
 }
+
+struct AppData {
+    
+}
+
+enum AppState {
+    Authentication(AuthState),
+    Authorized(AppData)
+}
+
 
 impl App {
     fn new(cc: &eframe::CreationContext<'_>) -> Self {
@@ -50,7 +60,7 @@ impl App {
             
         Self {
             backend,
-            state: AuthState::Checking(None),
+            state: AppState::Authentication(AuthState::Checking(None)),
             phone_input: String::new(),
             phone: None,
             code: None,
@@ -58,143 +68,164 @@ impl App {
     }
     fn update_state(&mut self) {
         match &mut self.state {
-            AuthState::Checking(p) => { 
-                if p.is_none() {
-                    let pending = self.backend.is_authorized();
-                    if pending.is_ok() {
-                        *p = Some(pending.unwrap());
-                    }
-                } else {
-                    if let Some(v) = p {
-                        if let Some(authorized) = v.try_take() {
-                            if authorized {
-                                self.state = AuthState::Authorized;
-                            } else {
-                                self.state = AuthState::EnterPhone;
+            AppState::Authentication(a_state) => {
+                match a_state {
+                    AuthState::Checking(p) => { 
+                        if p.is_none() {
+                            let pending = self.backend.is_authorized();
+                            if pending.is_ok() {
+                                *p = Some(pending.unwrap());
+                            }
+                        } else {
+                            if let Some(v) = p {
+                                if let Some(authorized) = v.try_take() {
+                                    if authorized {
+                                        *a_state = AuthState::Authorized;
+                                    } else {
+                                        *a_state = AuthState::EnterPhone;
+                                    }
+                                }
                             }
                         }
                     }
-                }
-            }
-            AuthState::EnterPhone => { 
-                
-            }
-            AuthState::RequestingCode(p) => { 
-                if p.is_none() {
-                    let phone = self.phone.as_ref().unwrap().clone();
-                    let pending = self.backend.request_login_code(phone);
-                    if pending.is_ok() {
-                        *p = Some(pending.unwrap());
+                    AuthState::EnterPhone => { 
+                        
                     }
-                } else {
-                    if let Some(v) = p {
-                        if let Some(res) = v.try_take() {
-                            self.state = AuthState::EnterCode;
+                    AuthState::RequestingCode(p) => { 
+                        if p.is_none() {
+                            let phone = self.phone.as_ref().unwrap().clone();
+                            let pending = self.backend.request_login_code(phone);
+                            if pending.is_ok() {
+                                *p = Some(pending.unwrap());
+                            }
+                        } else {
+                            if let Some(v) = p {
+                                if let Some(res) = v.try_take() {
+                                    *a_state = AuthState::EnterCode;
+                                }
+                            }
+                            
                         }
                     }
-                    
-                }
-            }
-            AuthState::EnterCode => { 
-                
-            }
-            AuthState::SigningIn(p) => { 
-                if p.is_none() {
-                    let pending = self.backend.sign_in(
-                        self.code.as_ref().unwrap().clone()
-                    );
-                    if pending.is_ok() {
-                        *p = Some(pending.unwrap());
+                    AuthState::EnterCode => { 
+                        
                     }
-                } else {
-                    if let Some(v) = p {
-                        if let Some(res) = v.try_take() {
-                            self.state = AuthState::Authorized
+                    AuthState::SigningIn(p) => { 
+                        if p.is_none() {
+                            let pending = self.backend.sign_in(
+                                self.code.as_ref().unwrap().clone()
+                            );
+                            if pending.is_ok() {
+                                *p = Some(pending.unwrap());
+                            }
+                        } else {
+                            if let Some(v) = p {
+                                if let Some(res) = v.try_take() {
+                                    *a_state = AuthState::Authorized
+                                }
+                            }
                         }
                     }
+                    AuthState::Authorized => { 
+                       self.state = AppState::Authorized(AppData {  })
+                    }
                 }
+            },
+            AppState::Authorized(app_data) => {
+                
             }
-            AuthState::Authorized => { 
-               
-            }
+            
         }
     }
     fn draw_ui(&mut self, ui: &mut egui::Ui) {
         match &mut self.state {
-            AuthState::Checking(p) => { 
-                show_centered(ui, |ui| {
-                    ui.vertical_centered(|ui| {
-                        ui.label("Fetching session!");
-                        ui.spinner();
-                    });
-                });
-            }
-            AuthState::EnterPhone => { 
-                show_centered(ui, |ui| {
-                    ui.vertical_centered(|ui| {
-                        ui.label("Paste you phone number to proceed the authorization");
-                        ui.add_space(10.0);
-                        ui.add_sized(
-                            [300.0, 24.0],
-                            egui::TextEdit::singleline(&mut self.phone_input),
-                        );
-                        if ui.button("Submit").clicked() {
-                            let num = self.phone_input.trim().to_string();
-                            println!("{}", num.clone());
-                            self.phone_input.clear();
-                            self.phone = Some(num);
-                            self.state = AuthState::RequestingCode(None)
-                        }
-                    });
-                });
-            }
-            AuthState::RequestingCode(p) => { 
-                show_centered(ui, |ui| {
-                    ui.vertical_centered(|ui| {
-                        let line = format!("Code was sent to {}", self.phone.as_ref().unwrap());
-                        ui.label(line);
-                        ui.add_space(10.0);
-                        ui.text_edit_singleline(&mut self.phone_input);
-                        if ui.button("Submit").clicked() {
-                            self.phone = Some(self.phone_input.clone());
-                            self.state = AuthState::RequestingCode(None)
-                        }
-                        ui.add_space(10.0);
-                        if ui.button("Cancel").clicked() {
-                            self.state = AuthState::EnterPhone
-                        }
-                    });
-                }); 
-            }
-            AuthState::EnterCode => { 
-                show_centered(ui, |ui| {
-                    ui.vertical_centered(|ui| {
-                        let line = format!("Code was sent to {}", self.phone.as_ref().unwrap());
-                        ui.label(line);
-                        ui.add_space(10.0);
-                        ui.text_edit_singleline(&mut self.phone_input);
-                        if ui.button("Submit").clicked() {
-                            let num = self.phone_input.trim().to_string();
-                            self.code = Some(num);
-                            self.phone_input.clear();
-                            self.state = AuthState::SigningIn(None)
-                        }
-                        if ui.button("Cancel").clicked() {
-                            self.state = AuthState::EnterPhone
-                        }
-                    });
-                });
-            }
-            AuthState::SigningIn(p) => {
-                show_centered(ui, |ui| {
-                    ui.vertical_centered(|ui| {
-                        let line = format!("Signing in...");
-                        ui.label(line);
-                        ui.spinner();
-                    });
-                });
-            }
-            AuthState::Authorized => { 
+            AppState::Authentication(a_state) => {
+                match a_state {
+                    AuthState::Checking(p) => { 
+                        show_centered(ui, |ui| {
+                            ui.vertical_centered(|ui| {
+                                ui.label("Fetching session!");
+                                ui.spinner();
+                            });
+                        });
+                    }
+                    AuthState::EnterPhone => { 
+                        show_centered(ui, |ui| {
+                            ui.vertical_centered(|ui| {
+                                ui.label("Paste you phone number to proceed the authorization");
+                                ui.add_space(10.0);
+                                ui.add_sized(
+                                    [300.0, 24.0],
+                                    egui::TextEdit::singleline(&mut self.phone_input),
+                                );
+                                if ui.button("Submit").clicked() {
+                                    let num = self.phone_input.trim().to_string();
+                                    println!("{}", num.clone());
+                                    self.phone_input.clear();
+                                    self.phone = Some(num);
+                                    *a_state = AuthState::RequestingCode(None)
+                                }
+                            });
+                        });
+                    }
+                    AuthState::RequestingCode(p) => { 
+                        show_centered(ui, |ui| {
+                            ui.vertical_centered(|ui| {
+                                let line = format!("Code was sent to {}", self.phone.as_ref().unwrap());
+                                ui.label(line);
+                                ui.add_space(10.0);
+                                ui.text_edit_singleline(&mut self.phone_input);
+                                if ui.button("Submit").clicked() {
+                                    self.phone = Some(self.phone_input.clone());
+                                    *a_state = AuthState::RequestingCode(None)
+                                }
+                                ui.add_space(10.0);
+                                if ui.button("Cancel").clicked() {
+                                    *a_state = AuthState::EnterPhone
+                                }
+                            });
+                        }); 
+                    }
+                    AuthState::EnterCode => { 
+                        show_centered(ui, |ui| {
+                            ui.vertical_centered(|ui| {
+                                let line = format!("Code was sent to {}", self.phone.as_ref().unwrap());
+                                ui.label(line);
+                                ui.add_space(10.0);
+                                ui.text_edit_singleline(&mut self.phone_input);
+                                if ui.button("Submit").clicked() {
+                                    let num = self.phone_input.trim().to_string();
+                                    self.code = Some(num);
+                                    self.phone_input.clear();
+                                    *a_state = AuthState::SigningIn(None)
+                                }
+                                if ui.button("Cancel").clicked() {
+                                    *a_state = AuthState::EnterPhone
+                                }
+                            });
+                        });
+                    }
+                    AuthState::SigningIn(p) => {
+                        show_centered(ui, |ui| {
+                            ui.vertical_centered(|ui| {
+                                let line = format!("Signing in...");
+                                ui.label(line);
+                                ui.spinner();
+                            });
+                        });
+                    }
+                    AuthState::Authorized => { 
+                        show_centered(ui, |ui| {
+                            ui.vertical_centered(|ui| {
+                                let line = format!("Welcome!...");
+                                ui.label(line);
+                                
+                            });
+                        });
+                    }
+                }
+            },
+            AppState::Authorized(app_data) => {
                 egui::Panel::left(egui::Id::unique("LeftP"))
                     .resizable(true)
                     .show(ui, |ui| {
@@ -212,13 +243,14 @@ impl App {
                                             ui.add_sized(
                                                 [ui.available_width() - 10.0, 0.0],
                                                 egui::Button::new("chatx"),
-                                            );
-                                        }
-                                });
-                            });
+                                    );
+                                    }
+                        });
                     });
+                });
             }
         }
+        
     }
 }
 

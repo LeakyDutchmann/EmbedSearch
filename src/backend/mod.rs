@@ -5,3 +5,4 @@ pub mod database;
 pub mod utils;
 pub mod workingchat;
 pub mod types;
+pub mod protocol;

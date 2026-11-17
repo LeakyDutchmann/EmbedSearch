@@ -3,27 +3,6 @@
 version = 4
 
 [[package]]
-name = "EmbedSearch"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "bytemuck",
- "dotenvy",
- "eframe",
- "egui",
- "grammers-client",
- "grammers-mtsender",
- "grammers-session",
- "image",
- "libsql",
- "ndarray",
- "ort",
- "serde",
- "serde_json",
- "tokio",
-]
-
-[[package]]
 name = "ab_glyph"
 version = "0.2.32"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1465,6 +1444,27 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e73ce90f54750be8672c02be0743fe47530e6f251e066f0ee2869b59eb297af5"
 dependencies = [
  "bytemuck",
+]
+
+[[package]]
+name = "embed_search"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "bytemuck",
+ "dotenvy",
+ "eframe",
+ "egui",
+ "grammers-client",
+ "grammers-mtsender",
+ "grammers-session",
+ "image",
+ "libsql",
+ "ndarray",
+ "ort",
+ "serde",
+ "serde_json",
+ "tokio",
 ]
 
 [[package]]

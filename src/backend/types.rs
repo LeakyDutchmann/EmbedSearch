@@ -2,7 +2,7 @@ use grammers_session::types::PeerRef;
 use anyhow::anyhow;
 use image::DynamicImage;
 
-#[derive(Eq, Hash, PartialEq, Clone)]
+#[derive(Eq, Hash, PartialEq, Clone, Debug)]
 pub struct ChatId {
     pub id: i64
 }

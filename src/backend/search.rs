@@ -44,6 +44,20 @@ impl SearchEngine {
             login_token: None,
         })
     }
+    pub async fn restore_environment(&mut self) -> anyhow::Result<()>{
+        let chat_ids = self.database.get_indexed_chat_ids().await?;
+
+        let chats = self.telegram_client.get_available_chats().await?;
+
+        let filtered_chats: Vec<Chat> = chats.into_iter().filter(|c| chat_ids.contains(&c.chat_id)).collect();
+        for chat in filtered_chats.into_iter() {
+            let id = chat.chat_id.clone();
+            let w_chat = WorkingChat::from_chat(chat);
+            self.working_chats.insert(id, w_chat);
+        }
+        
+        Ok(())
+    }
     pub async fn request_login_code(&mut self, phone: String) -> anyhow::Result<()> {
         dotenvy::dotenv().ok(); 
         let api_hash = std::env::var("TELEGRAM_API_HASH")?;
@@ -64,6 +78,19 @@ impl SearchEngine {
 
     pub async fn get_available_chats(&self) -> anyhow::Result<Vec<Chat>> {
         self.telegram_client.get_available_chats().await
+    }
+    pub fn get_working_chats(&self) -> Vec<Chat> {
+        let mut chats = Vec::new();
+        
+        for (id, chat) in self.working_chats.iter() {
+            let chat = Chat {
+                name: chat.name.clone(),
+                chat_id: id.clone(),
+                peer_ref: chat.peer_ref
+            };
+            chats.push(chat);
+        }
+        chats
     }
     pub fn set_working_chats(&mut self, mut chats: Vec<Chat>) {
         while let Some(chat) = chats.pop() {

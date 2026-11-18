@@ -3,6 +3,7 @@ use std::collections::HashMap;
 use crate::backend::embedding::IndexedImage;
 use crate::backend::types::{ChatId, MessageId};
 
+#[derive(Debug, PartialEq, Eq)]
 pub struct Chat {
     pub chat_id: ChatId,
     pub name: String,

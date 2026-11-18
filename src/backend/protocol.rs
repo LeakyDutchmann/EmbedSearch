@@ -2,14 +2,31 @@ use std::any;
 
 use anyhow::anyhow;
 use tokio::task::JoinHandle;
+use std::collections::HashSet;
 
-use crate::backend::search::SearchEngine;
+use backend::search::SearchEngine;
+use crate::backend;
+use backend::types::ChatId;
+use backend::workingchat::Chat;
 use tokio::sync::oneshot;
+
+
+pub struct ChatInfo {
+    pub chat_id: ChatId,
+    pub name: String,
+}
+
+
+pub struct InitializeResponse {
+    pub indexed_chats: Vec<ChatInfo>,
+    pub available_chats: Vec<ChatInfo>,
+}
 
 
 pub struct BackEnd {
     sender: tokio::sync::mpsc::Sender<Request>,
 }
+
 
 pub enum Request {
     ReqLoginCode{
@@ -23,10 +40,16 @@ pub enum Request {
     IsAuthorized {
         feedback: oneshot::Sender<anyhow::Result<bool>>,
     },
+    InitializeAppData {
+        feedback: oneshot::Sender<anyhow::Result<InitializeResponse>>
+    },
+    RefreshAppData {
+        feedback: oneshot::Sender<anyhow::Result<InitializeResponse>>
+    },
     GetChats,
-    SetChats,
+    SetWorkingChats{chat_ids: HashSet<ChatId>, feedback: oneshot::Sender<anyhow::Result<()>>},
     LoadIndexed,
-    IndexChats,
+    IndexChats{feedback: oneshot::Sender<anyhow::Result<()>>},
     SearchImage,
     GetImages,
     
@@ -78,6 +101,78 @@ impl BackEnd {
                     Request::IsAuthorized{feedback} => {
                         let res = engine.is_authorized().await;
                         feedback.send(res);
+                    },
+                    Request::RefreshAppData { feedback } => {
+                        let result: anyhow::Result<InitializeResponse> = async {
+                            let w_chats = engine.get_working_chats();
+                            let mut chat_info = Vec::new();
+                            for chat in w_chats {
+                                chat_info.push(ChatInfo {
+                                    chat_id: chat.chat_id,
+                                    name: chat.name,
+                                })
+                            }
+
+                            let all_chats = engine.get_available_chats().await?;
+                            let mut a_chats = Vec::new();
+                            for chat in all_chats {
+                                a_chats.push(ChatInfo {
+                                    chat_id: chat.chat_id,
+                                    name: chat.name,
+                                })
+                            }
+                            Ok(InitializeResponse {
+                                indexed_chats: chat_info,
+                                available_chats: a_chats,
+                            })
+                        }.await;
+                        feedback.send(result);
+                        
+                    },
+                    Request::SetWorkingChats { chat_ids, feedback } => {
+                        let result: anyhow::Result<()> = async {
+                            let available = engine.get_available_chats().await?;
+                            let selected: Vec<Chat> = available.into_iter()
+                                .filter(|c| chat_ids.contains(&c.chat_id))
+                                .collect();
+                            engine.set_working_chats(selected);
+                            Ok(())
+                        }.await;
+                        feedback.send(result);
+                    }, 
+                    Request::IndexChats { feedback } => {
+                        let result = engine.index_chats().await;
+                        feedback.send(result);
+                    },
+                    Request::InitializeAppData { feedback } => {
+                        let result: anyhow::Result<InitializeResponse> = async {
+                            engine.restore_environment().await?;
+                            
+                            engine.load_indexed().await?;
+
+                            let w_chats = engine.get_working_chats();
+                            let mut chat_info = Vec::new();
+                            for chat in w_chats {
+                                chat_info.push(ChatInfo {
+                                    chat_id: chat.chat_id,
+                                    name: chat.name,
+                                })
+                            }
+
+                            let all_chats = engine.get_available_chats().await?;
+                            let mut a_chats = Vec::new();
+                            for chat in all_chats {
+                                a_chats.push(ChatInfo {
+                                    chat_id: chat.chat_id,
+                                    name: chat.name,
+                                })
+                            }
+                            Ok(InitializeResponse {
+                                indexed_chats: chat_info,
+                                available_chats: a_chats,
+                            })
+                        }.await;
+                        feedback.send(result);
                     }
                     _ => {
                         
@@ -106,4 +201,24 @@ impl BackEnd {
         self.sender.try_send(Request::SignIn { code, feedback: rp_tx })?;
         Ok(Pending{receiver: rx})
     }
-}
+    pub fn get_app_data(&self) -> anyhow::Result<Pending<InitializeResponse>> {
+        let (rp_tx, rx) = oneshot::channel();
+        self.sender.try_send(Request::RefreshAppData { feedback: rp_tx })?;
+        Ok(Pending{receiver: rx})
+    }
+    pub fn restore_environment(&self) -> anyhow::Result<Pending<InitializeResponse>> {
+        let (rp_tx, rx) = oneshot::channel();
+        self.sender.try_send(Request::InitializeAppData { feedback: rp_tx })?;
+        Ok(Pending{receiver: rx})
+    }
+    pub fn set_working_chats(&self, chats: &HashSet<ChatId>) -> anyhow::Result<Pending<()>> {
+        let (rp_tx, rx) = oneshot::channel();
+        self.sender.try_send(Request::SetWorkingChats {feedback: rp_tx, chat_ids: chats.clone()})?;
+        Ok(Pending { receiver: rx })
+    }
+    pub fn index_chats(&self) -> anyhow::Result<Pending<()>> {
+        let (rp_tx, rx) = oneshot::channel();
+        self.sender.try_send(Request::IndexChats{feedback: rp_tx})?;
+        Ok(Pending {receiver: rx })
+    }
+ }

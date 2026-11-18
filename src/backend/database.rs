@@ -1,6 +1,7 @@
 use std::path::Path;
 use libsql::params;
 use libsql::{Connection, Builder};
+use std::collections::HashSet;
 
 use crate::backend::embedding::DbIndexedImage;
 use crate::backend::types::{ChatId, MessageId};
@@ -31,8 +32,10 @@ impl Database {
         let mut rows = self.connection.query("SELECT msg_id, chat_id, embedding FROM images", ()).await?;
         
         let mut result = Vec::new();
-        
+        let mut x = 0;
         while let Some(row) = rows.next().await? {
+            x += 1;
+            println!("Loaded {}", x);
             let msg_id: i32 = row.get(0)?;
             let chat_id: i64 = row.get(1)?;
             let bytes: Vec<u8> = row.get(2)?;
@@ -53,9 +56,24 @@ impl Database {
 
         Ok(result)
     }
+    pub async fn get_indexed_chat_ids(&self) -> anyhow::Result<HashSet<ChatId>>{
+        let mut rows = self.connection.query("SELECT chat_id FROM images", ()).await?;
+        
+        let mut result = HashSet::new();
+        
+        while let Some(row) = rows.next().await? {
+            let id: i64 = row.get(0)?;
+            println!("Loaded id {}", id);
+            
+            result.insert(ChatId{id});
+        }
+
+        Ok(result)
+    }
     pub async fn save_indexed(&mut self, indexed: &Vec<DbIndexedImage>) -> anyhow::Result<()> {
         let trans = self.connection.transaction().await?;
-        
+
+        let mut x = 0;
         for img in indexed {
             let bytes: &[u8] = bytemuck::cast_slice(
                 img.embedding.as_ref()
@@ -67,6 +85,8 @@ impl Database {
               "INSERT INTO images(msg_id, chat_id, embedding) values(?1, ?2, ?3)",
               params![msg_id, chat_id, bytes]
             ).await?;
+            x += 1;
+            println!("Inserted {} into db", x)
         }
         
         trans.commit().await?;

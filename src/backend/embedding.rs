@@ -37,13 +37,15 @@ impl Embedder {
     }
     pub fn index_images(&mut self, pending: Vec<PendingImage>) -> anyhow::Result<Vec<RawIndexedImage>> {
         let mut embeds: Vec<RawIndexedImage> = Vec::new();
-        
+        let mut x = 0;
         for image in pending {
             let Ok(embedding) = self.create_embedding(image.img) else {continue};
             embeds.push(RawIndexedImage {
                 embedding,
                 msg_id: image.msg_id,
             });
+            x += 1;
+            println!("Indexed {}", x);
         }
 
         Ok(embeds)

@@ -74,7 +74,7 @@ impl TelegramClient {
         
         let mut images = Vec::new();
         let mut bytes = Vec::new();
-        
+        let mut x = 0;
         while let Some(msg) = messages.next().await? {
             let Some(media) = msg.media() else {
                 continue 
@@ -95,7 +95,8 @@ impl TelegramClient {
                     while let Some(chunk) = download.next().await? {
                         bytes.extend(chunk);
                     }
-        
+                    x += 1;
+                    println!("Loaded {} images", x);
                     let img = image::load_from_memory(&bytes)?;
                     images.push(PendingImage {
                         img,

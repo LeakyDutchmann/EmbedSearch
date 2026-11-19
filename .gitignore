@@ -35,4 +35,6 @@ rustc-ice-*.txt
 
 /session
 
+/session/session.db
+
 /data

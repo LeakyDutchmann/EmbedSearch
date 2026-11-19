@@ -32,3 +32,7 @@ rustc-ice-*.txt
 .env
 
 /models
+
+/session
+
+/data

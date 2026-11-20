@@ -1,10 +1,5 @@
 use crate::backend::{
-    self,
-    database::Database,
-    embedding::{Embedder, IndexedImage, DbIndexedImage},
-    telegram::TelegramClient,
-    types::{ChatId, MessageId},
-    workingchat::{Chat, WorkingChat}
+    self, database::Database, embedding::{DbIndexedImage, Embedder, IndexedImage}, telegram::TelegramClient, types::{ChatId, MessageId}, workingchat::{Chat, ChatContents, Topic, WorkingChat, TopicId}
 };
 
 use anyhow::anyhow;
@@ -83,10 +78,19 @@ impl SearchEngine {
         let mut chats = Vec::new();
         
         for (id, chat) in self.working_chats.iter() {
+            let topics = match &chat.contents {
+                ChatContents::Topics(t) => {
+                    Some(t.iter().map(|(k, v)| Topic::from_key_val(&k, &v)).collect::<Vec<Topic>>())
+                },
+                _ => {
+                    None
+                }
+            };
             let chat = Chat {
                 name: chat.name.clone(),
                 chat_id: id.clone(),
-                peer_ref: chat.peer_ref
+                peer_ref: chat.peer_ref,
+                topics,
             };
             chats.push(chat);
         }
@@ -102,7 +106,20 @@ impl SearchEngine {
 
         for img in indexed {
             if let Some(chat) = self.working_chats.get_mut(&img.chat_id) {
-                chat.indexed_images.insert(img.msg_id, IndexedImage {embedding: img.embedding});
+                match &mut chat.contents {
+                    ChatContents::Images(map) => {
+                        map.insert(img.msg_id, IndexedImage {embedding: img.embedding});
+                    },
+                    ChatContents::Topics(topics) => {
+                        let Some(t_id) = img.topic_id else {
+                            continue;
+                        };
+                        if let Some(topic) = topics.get_mut(&t_id) {
+                            topic.indexed_images.insert(img.msg_id, IndexedImage {embedding: img.embedding});
+                        }
+                    }
+                }
+                
             }
         }
         
@@ -120,43 +137,84 @@ impl SearchEngine {
                     chat_id: chat_id.clone(),
                     msg_id: raw.msg_id,
                     embedding: raw.embedding,
+                    topic_id: raw.topic_id
                 });
             }
 
             self.database.save_indexed(&indexed).await?;
 
             for img in indexed {
-                chat.indexed_images.insert(img.msg_id.clone(), IndexedImage { embedding: img.embedding });
+                match &mut chat.contents {
+                    ChatContents::Images(indexed_images) => {
+                        indexed_images.insert(img.msg_id.clone(), IndexedImage { embedding: img.embedding });
+                    }, 
+                    ChatContents::Topics(topics) => {
+                        let Some(t_id) = img.topic_id else {
+                            continue
+                        };
+                        if let Some(topic) = topics.get_mut(&t_id) {
+                            topic.indexed_images.insert(img.msg_id.clone(), IndexedImage { embedding: img.embedding });
+                        }
+                    }
+                }
             }
         }
         Ok(())
     }
-    pub fn search_image(&mut self, img: DynamicImage, chat_id: ChatId) -> anyhow::Result<Vec<SearchResult>> {
+    pub fn search_image(&mut self, img: DynamicImage, chat_id: ChatId, topic_id: Option<TopicId>) -> anyhow::Result<Vec<SearchResult>> {
         let embeddding = self.embedder.create_embedding(img)?;
 
         let Some(working_chat) = self.working_chats.get(&chat_id) else {
             return Err(anyhow!("Failed to search image: CHAT NOT FOUND"))
         };
-
+        
         let mut result = Vec::new();
 
-        for (msg_id, indexed) in &working_chat.indexed_images {
-            let similarity = cosine_similarity(&embeddding, &indexed.embedding);
-            result.push(SearchResult {
-                chat_id: chat_id.clone(),
-                msg_id: msg_id.clone(),
-                similarity 
-            });
+        match &working_chat.contents {
+            ChatContents::Images(indexed_images) => {
+                for (msg_id, indexed) in indexed_images {
+                    let similarity = cosine_similarity(&embeddding, &indexed.embedding);
+                    result.push(SearchResult {
+                        chat_id: chat_id.clone(),
+                        msg_id: msg_id.clone(),
+                        similarity 
+                    });
+                }
+        
+                result.sort_by(|a, b| {
+                    b.similarity
+                        .partial_cmp(&a.similarity)
+                        .unwrap()
+                });
+        
+                result.retain(|a| a.similarity > 0.5);
+        
+                
+            },
+            ChatContents::Topics(topics) => {
+                let Some(t_id) = topic_id else {
+                    return Err(anyhow::anyhow!("Forum topic not found"));
+                };
+                if let Some(topic) = topics.get(&t_id) {
+                    for (msg_id, indexed) in &topic.indexed_images {
+                        let similarity = cosine_similarity(&embeddding, &indexed.embedding);
+                        result.push(SearchResult {
+                            chat_id: chat_id.clone(),
+                            msg_id: msg_id.clone(),
+                            similarity 
+                        });
+                    }
+            
+                    result.sort_by(|a, b| {
+                        b.similarity
+                            .partial_cmp(&a.similarity)
+                            .unwrap()
+                    });
+            
+                    result.retain(|a| a.similarity > 0.5);
+                }
+            }
         }
-
-        result.sort_by(|a, b| {
-            b.similarity
-                .partial_cmp(&a.similarity)
-                .unwrap()
-        });
-
-        result.retain(|a| a.similarity > 0.5);
-
         Ok(result)
     }
     pub async fn get_images(&self, chat_id: ChatId, msg_ids: &[MessageId]) -> anyhow::Result<HashMap<MessageId, DynamicImage>> {

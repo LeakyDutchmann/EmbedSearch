@@ -1,6 +1,6 @@
 
 use anyhow::anyhow;
-use crate::backend;
+use crate::backend::{self, workingchat::{ChatContents, Topic, TopicId}};
 use grammers_client::{Client, media::Media};
 use grammers_session::storages::SqliteSession;
 use grammers_mtsender::SenderPool;
@@ -8,11 +8,17 @@ use image::DynamicImage;
 use std::path::Path;
 use std::sync::Arc;
 use grammers_client::client::LoginToken;
+use grammers_client::peer::Peer;
+use tl::types::Channel;
 use grammers_session::types::PeerRef;
 use backend::workingchat::{Chat, WorkingChat};
 use std::collections::HashMap;
 use backend::types::{ChatId, PendingImage, MessageId};
 
+
+
+use grammers_tl_types as tl;
+use tl::enums::messages::Messages;
 
 
 pub struct TelegramClient {
@@ -58,56 +64,201 @@ impl TelegramClient {
                 Ok(Some(p_r)) => p_r,
                 _ => {return Err(anyhow!("Failed to get peer reference"))}
             };
+
+            let topics = {
+                match peer {
+                    Peer::Channel(ch) => {
+                        if ch.raw.forum {
+                            let tps = self.get_topics(&peer_ref).await?;
+                            Some(tps)
+                        } else {
+                            None
+                        }
+                    },
+                    _ => None,
+                }
+            };
             
             chats.push(Chat {
                 chat_id: ChatId::from_peer_ref(peer_ref.clone())?,
                 peer_ref,
                 name: peer.name().unwrap_or("Unknown").to_string(),
+                topics,
             });
             
         }
         Ok(chats)
     }
-    pub async fn get_unindexed_images(&self, chat: &WorkingChat) -> anyhow::Result<Vec<PendingImage>> {
-        let mut messages = self.client.iter_messages(chat.peer_ref);
-
+    pub async fn get_unindexed_images(&mut self, chat: &WorkingChat) -> anyhow::Result<Vec<PendingImage>> {
+        match &chat.contents {
+            ChatContents::Images(indexed_images) => {
+                let mut messages = self.client.iter_messages(chat.peer_ref);
+                           
+                let mut images = Vec::new();
+                let mut bytes = Vec::new();
+                let mut x = 0;
+                while let Some(msg) = messages.next().await? {
+                    let Some(media) = msg.media() else {
+                        continue 
+                    };
         
-        let mut images = Vec::new();
-        let mut bytes = Vec::new();
-        let mut x = 0;
-        while let Some(msg) = messages.next().await? {
-            let Some(media) = msg.media() else {
-                continue 
-            };
-
-            let msg_id = MessageId{id: msg.id()};
-            
-            if chat.indexed_images.contains_key(&msg_id) {
-                continue;
-            }
-            
-            match media {
-                Media::Photo(photo) => {
-                    bytes.clear();
+                    let msg_id = MessageId{id: msg.id()};
                     
-                    let mut download = self.client.iter_download(&photo);
-        
-                    while let Some(chunk) = download.next().await? {
-                        bytes.extend(chunk);
+                    if indexed_images.contains_key(&msg_id) {
+                        continue;
                     }
-                    x += 1;
-                    println!("Loaded {} images", x);
-                    let img = image::load_from_memory(&bytes)?;
-                    images.push(PendingImage {
-                        img,
-                        msg_id
-                    });             
-                },
-                _ => continue
+                    
+                    match media {
+                        Media::Photo(photo) => {
+                            bytes.clear();
+                            
+                            let mut download = self.client.iter_download(&photo);
+                
+                            while let Some(chunk) = download.next().await? {
+                                bytes.extend(chunk);
+                            }
+                            x += 1;
+                            println!("Loaded {} images", x);
+                            let img = image::load_from_memory(&bytes)?;
+                            images.push(PendingImage {
+                                img,
+                                msg_id,
+                                topic_id: None,
+                            });             
+                        },
+                        _ => continue
+                    }
+                }
+                
+                Ok(images)
+            }, 
+            ChatContents::Topics(topics) => {
+                let mut images = Vec::new();
+                let mut bytes = Vec::new();
+                let mut x = 0;
+
+                for (topic_id, topic) in topics {
+                    println!("Lading from topic: {}", topic.name);
+                    let peer = chat.peer_ref;
+                    let mut ids = vec![];
+                    let mut offset_id = 0;
+                    
+                    loop {
+                        let page = self.fetch_page_mtproto(offset_id, &peer, &topic_id).await?;
+                        for msg in page.iter() {
+                            ids.push(msg.id);
+                        }
+                        let Some(new_offset) = page.iter().map(|m| m.id).min() else {
+                            break;
+                        };
+                        offset_id = new_offset;
+                    }
+                    
+                    let messages = self.client.get_messages_by_id(peer, &ids).await?;
+                    for opt in messages {
+                        if let Some(msg) = opt {
+                            let Some(media) = msg.media() else {
+                                continue 
+                            };
+                
+                            let msg_id = MessageId{id: msg.id()};
+                            
+                            if topic.indexed_images.contains_key(&msg_id) {
+                                continue;
+                            }
+                            
+                            match media {
+                                Media::Photo(photo) => {
+                                    bytes.clear();
+                                    
+                                    let mut download = self.client.iter_download(&photo);
+                        
+                                    while let Some(chunk) = download.next().await? {
+                                        bytes.extend(chunk);
+                                    }
+                                    x += 1;
+                                    println!("Loaded {} images", x);
+                                    let img = image::load_from_memory(&bytes)?;
+                                    images.push(PendingImage {
+                                        img,
+                                        msg_id,
+                                        topic_id: Some(topic_id.clone())
+                                    });             
+                                },
+                                _ => continue
+                            }
+                        }
+                    }
+                }
+                Ok(images)
+            }
+        } 
+    }
+    pub async fn fetch_page_mtproto(&self, offset_id: i32, peer: &PeerRef, topic_id: &TopicId) -> anyhow::Result<Vec<tl::types::Message>> {
+        let messages = self.client.invoke(&tl::functions::messages::Search{
+            q: String::new(),
+            peer: peer.into(),
+            filter: tl::enums::MessagesFilter::InputMessagesFilterPhotos,
+            top_msg_id: Some(topic_id.id as i32),
+            offset_id,
+            add_offset: 0,
+            limit: 100,
+            max_id: 0,
+            min_id: 0,
+            hash: 0,
+            from_id: None,
+            saved_peer_id: None,
+            saved_reaction: None,
+            max_date: 0,
+            min_date: 0,
+        }).await?;
+        
+        let mut msg_vec = vec![];
+        match messages {
+            Messages::Messages(m) => {
+                println!("Got Messages::Messages");
+                for m in m.messages {
+                    match m {
+                        tl::enums::Message::Message(msg) => {
+                            msg_vec.push(msg)
+                        }
+                        _ => {
+                            continue;
+                        }
+                    }
+                }
+            }, 
+            Messages::ChannelMessages(m) => {
+                println!("Got Messages::ChannelMessages");
+                for m in m.messages {
+                    match m {
+                        tl::enums::Message::Message(msg) => {
+                            msg_vec.push(msg);
+                        },
+                        _ => {
+                            continue
+                        }
+                    }
+                }
+            }
+            Messages::NotModified(m) => {
+                println!("Got {} Messages::NotModified", m.count);
+            },
+            Messages::Slice(m) => {
+                println!("Got slice with {} messages", m.count);
+                for m in m.messages {
+                    match m {
+                        tl::enums::Message::Message(msg) => {
+                            msg_vec.push(msg);
+                        },
+                        _ => {
+                            continue
+                        }
+                    }
+                }
             }
         }
-        
-        Ok(images)
+        Ok(msg_vec)
     }
     pub async fn download_images(&self, peer_ref: PeerRef, msg_ids: &[MessageId] ) -> anyhow::Result<HashMap<MessageId, DynamicImage>> {
         let message_ids: Vec<i32> = msg_ids.iter().map(|s| s.id).collect();
@@ -149,4 +300,40 @@ impl TelegramClient {
         }
         Ok(images)
     }
+    pub async fn get_topics(&self, peer_ref: &PeerRef) -> anyhow::Result<Vec<Topic>> {
+        let peer: tl::enums::InputPeer = peer_ref.into();
+
+        let topics = self.client.invoke(
+            &tl::functions::messages::GetForumTopics {
+                peer: peer,
+                offset_date: 0,
+                offset_id: 0,
+                offset_topic: 0,
+                limit: 100,
+                q: None,
+            }
+        ).await?;
+
+        match topics {
+            tl::enums::messages::ForumTopics::Topics(t) => {
+                let mut f_topics = Vec::new();
+                for topic in t.topics {
+                    match topic {
+                        tl::enums::ForumTopic::Topic(top) => {
+                            let t = Topic {
+                                name: top.title,
+                                id: TopicId{ id: top.id as i64}
+                            };
+                            f_topics.push(t);
+                        },
+                        _ => {
+                            continue;
+                        }
+                    }
+                }
+                return Ok(f_topics);
+            }
+        }
+    }
 }
+

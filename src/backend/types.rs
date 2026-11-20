@@ -1,6 +1,7 @@
 use grammers_session::types::PeerRef;
 use anyhow::anyhow;
 use image::DynamicImage;
+use crate::backend::workingchat::TopicId;
 
 #[derive(Eq, Hash, PartialEq, Clone, Debug)]
 pub struct ChatId {
@@ -27,4 +28,5 @@ impl ChatId {
 pub struct PendingImage {
     pub img: DynamicImage,
     pub msg_id: MessageId,
+    pub topic_id: Option<TopicId>
 }

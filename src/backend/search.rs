@@ -1,5 +1,5 @@
 use crate::backend::{
-    self, database::Database, embedding::{DbIndexedImage, Embedder, IndexedImage}, telegram::TelegramClient, types::{ChatId, MessageId}, workingchat::{Chat, ChatContents, Topic, WorkingChat, TopicId}
+    self, database::Database, embedding::{DbIndexedImage, Embedder, IndexedImage}, telegram::TelegramClient, types::{ChatId, MessageId, TopicId}, workingchat::{Chat, ChatContents, Topic, WorkingChat}
 };
 
 use anyhow::anyhow;
@@ -98,6 +98,7 @@ impl SearchEngine {
     }
     pub fn set_working_chats(&mut self, mut chats: Vec<Chat>) {
         while let Some(chat) = chats.pop() {
+            println!("Setting {:?} as wroking chat", chat);
             self.working_chats.insert(chat.chat_id.clone(), WorkingChat::from_chat(chat));
         }
     }

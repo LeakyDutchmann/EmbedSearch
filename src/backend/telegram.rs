@@ -1,6 +1,6 @@
 
 use anyhow::anyhow;
-use crate::backend::{self, workingchat::{ChatContents, Topic, TopicId}};
+use crate::backend::{self, workingchat::{ChatContents, Topic}};
 use grammers_client::{Client, media::Media};
 use grammers_session::storages::SqliteSession;
 use grammers_mtsender::SenderPool;
@@ -10,10 +10,11 @@ use std::sync::Arc;
 use grammers_client::client::LoginToken;
 use grammers_client::peer::Peer;
 use tl::types::Channel;
+use tl::enums::Chat as TlChat;
 use grammers_session::types::PeerRef;
 use backend::workingchat::{Chat, WorkingChat};
 use std::collections::HashMap;
-use backend::types::{ChatId, PendingImage, MessageId};
+use backend::types::{ChatId, PendingImage, MessageId, TopicId};
 
 
 
@@ -67,14 +68,26 @@ impl TelegramClient {
 
             let topics = {
                 match peer {
-                    Peer::Channel(ch) => {
-                        if ch.raw.forum {
-                            let tps = self.get_topics(&peer_ref).await?;
-                            Some(tps)
+                    Peer::Group(g) => {
+                        if g.is_megagroup() {
+                            match &g.raw {
+                                TlChat::Channel(ch) => {  
+                                    if ch.forum {
+                                        println!("Got channel-megagroup with topics: {}", g.title().unwrap());
+                                        let tps = self.get_topics(&peer_ref).await?;
+                                        Some(tps)
+                                    } else {
+                                        None
+                                    }
+                                },
+                                _ => {
+                                    None
+                                }
+                            }
                         } else {
                             None
                         }
-                    },
+                    }
                     _ => None,
                 }
             };
@@ -129,7 +142,7 @@ impl TelegramClient {
                         _ => continue
                     }
                 }
-                
+                println!("Got {} images from chat: {}", images.len(), chat.name);
                 Ok(images)
             }, 
             ChatContents::Topics(topics) => {
@@ -142,6 +155,8 @@ impl TelegramClient {
                     let peer = chat.peer_ref;
                     let mut ids = vec![];
                     let mut offset_id = 0;
+
+                    let mut x = 0;
                     
                     loop {
                         let page = self.fetch_page_mtproto(offset_id, &peer, &topic_id).await?;
@@ -183,13 +198,16 @@ impl TelegramClient {
                                         img,
                                         msg_id,
                                         topic_id: Some(topic_id.clone())
-                                    });             
+                                    });         
+                                    x += 1;
                                 },
                                 _ => continue
                             }
                         }
                     }
+                    println!("Got {} images from topic {}", images.len(), chat.name.clone() + "/" + &topic.name);
                 }
+                println!("Got {} images from topics in {}", images.len(), chat.name);
                 Ok(images)
             }
         } 

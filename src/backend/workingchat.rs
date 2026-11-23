@@ -1,7 +1,7 @@
 use grammers_session::types::PeerRef;
 use std::collections::HashMap;
 use crate::backend::embedding::IndexedImage;
-use crate::backend::types::{ChatId, MessageId};
+use crate::backend::types::{ChatId, MessageId, TopicId};
 use crate::backend::workingchat::ChatContents::Images;
 
 #[derive(Debug, PartialEq, Eq)]
@@ -13,10 +13,7 @@ pub struct Chat {
 }
 
 
-#[derive(Debug, PartialEq, Eq, Hash, Clone)]
-pub struct TopicId {
-    pub id: i64
-}
+
 
 #[derive(Debug, PartialEq, Eq)]
 pub struct Topic {

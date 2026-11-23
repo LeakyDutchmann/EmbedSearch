@@ -2,18 +2,19 @@ use std::any;
 
 use anyhow::anyhow;
 use tokio::task::JoinHandle;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 use backend::search::SearchEngine;
 use crate::backend;
-use backend::types::ChatId;
-use backend::workingchat::Chat;
+use backend::types::{ChatId, TopicId};
+use backend::workingchat::{Chat, Topic};
 use tokio::sync::oneshot;
 
 
 pub struct ChatInfo {
     pub chat_id: ChatId,
     pub name: String,
+    pub topics: Option<Vec<Topic>>
 }
 
 
@@ -47,7 +48,7 @@ pub enum Request {
         feedback: oneshot::Sender<anyhow::Result<InitializeResponse>>
     },
     GetChats,
-    SetWorkingChats{chat_ids: HashSet<ChatId>, feedback: oneshot::Sender<anyhow::Result<()>>},
+    SetWorkingChats{chats: HashMap<ChatId, Option<HashSet<TopicId>>>, feedback: oneshot::Sender<anyhow::Result<()>>},
     LoadIndexed,
     IndexChats{feedback: oneshot::Sender<anyhow::Result<()>>},
     SearchImage,
@@ -110,6 +111,7 @@ impl BackEnd {
                                 chat_info.push(ChatInfo {
                                     chat_id: chat.chat_id,
                                     name: chat.name,
+                                    topics: chat.topics
                                 })
                             }
 
@@ -119,6 +121,7 @@ impl BackEnd {
                                 a_chats.push(ChatInfo {
                                     chat_id: chat.chat_id,
                                     name: chat.name,
+                                    topics: chat.topics
                                 })
                             }
                             Ok(InitializeResponse {
@@ -129,12 +132,19 @@ impl BackEnd {
                         feedback.send(result);
                         
                     },
-                    Request::SetWorkingChats { chat_ids, feedback } => {
+                    Request::SetWorkingChats { chats, feedback } => {
                         let result: anyhow::Result<()> = async {
                             let available = engine.get_available_chats().await?;
-                            let selected: Vec<Chat> = available.into_iter()
-                                .filter(|c| chat_ids.contains(&c.chat_id))
+                            let mut selected: Vec<Chat> = available.into_iter()
+                                .filter(|c| chats.contains_key(&c.chat_id))
                                 .collect();
+                            for c in selected.iter_mut() {
+                                if let Some(Some(s_topics)) = chats.get(&c.chat_id) {
+                                    if let Some(a_topics) = &mut c.topics {
+                                        a_topics.retain(|t| s_topics.contains(&t.id));
+                                    }
+                                }
+                            }
                             engine.set_working_chats(selected);
                             Ok(())
                         }.await;
@@ -156,6 +166,7 @@ impl BackEnd {
                                 chat_info.push(ChatInfo {
                                     chat_id: chat.chat_id,
                                     name: chat.name,
+                                    topics: chat.topics,
                                 })
                             }
 
@@ -165,6 +176,7 @@ impl BackEnd {
                                 a_chats.push(ChatInfo {
                                     chat_id: chat.chat_id,
                                     name: chat.name,
+                                    topics: chat.topics,
                                 })
                             }
                             Ok(InitializeResponse {
@@ -211,9 +223,9 @@ impl BackEnd {
         self.sender.try_send(Request::InitializeAppData { feedback: rp_tx })?;
         Ok(Pending{receiver: rx})
     }
-    pub fn set_working_chats(&self, chats: &HashSet<ChatId>) -> anyhow::Result<Pending<()>> {
+    pub fn set_working_chats(&self, chats: HashMap<ChatId, Option<HashSet<TopicId>>>) -> anyhow::Result<Pending<()>> {
         let (rp_tx, rx) = oneshot::channel();
-        self.sender.try_send(Request::SetWorkingChats {feedback: rp_tx, chat_ids: chats.clone()})?;
+        self.sender.try_send(Request::SetWorkingChats {feedback: rp_tx, chats: chats})?;
         Ok(Pending { receiver: rx })
     }
     pub fn index_chats(&self) -> anyhow::Result<Pending<()>> {

@@ -3,7 +3,7 @@ use ndarray::{Array4, Array2};
 use ort::value::Tensor;
 use std::path::Path;
 
-use crate::backend::{types::{ChatId, MessageId, PendingImage}, workingchat::TopicId};
+use crate::backend::types::{ChatId, MessageId, PendingImage, TopicId};
 
 pub struct IndexedImage {
     pub embedding: Box<[f32]>,

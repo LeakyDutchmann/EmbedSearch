@@ -2,12 +2,12 @@ use eframe::egui;
 use egui::Color32;
 use egui::{Role::Label, ViewportBuilder};
 use tokio::io::join;
-use std::collections::HashSet;
+use std::collections::{HashSet, HashMap};
 
 use crate::backend::protocol::{BackEnd, InitializeResponse, Pending};
-use crate::backend::types::ChatId;
+use crate::backend::types::{ChatId, TopicId};
 use crate::frontend;
-use frontend::types::UiChat;
+use frontend::types::{UiChat, UiTopic};
 
 pub fn run() -> anyhow::Result<()> {
     let native_options = eframe::NativeOptions {
@@ -62,6 +62,7 @@ struct AppData {
     indexed_chats: HashSet<UiChat>,
     available_chats: Vec<UiChat>,
     selected_chats: HashSet<ChatId>,
+    selected_topics: HashMap<ChatId, HashSet<UiTopic>>,
     active_modal: UiModal,
     input: String,
     task: BackGroundTask,
@@ -69,12 +70,13 @@ struct AppData {
 
 impl AppData {
     fn from_init(res: InitializeResponse) -> Self {
-        let indexed_chats: HashSet<UiChat> = res.indexed_chats.iter().map(|c| UiChat {name: c.name.clone(), id: c.chat_id.clone()}).collect();
-        let available_chats: Vec<UiChat> = res.available_chats.iter().map(|c| UiChat { name: c.name.clone(), id: c.chat_id.clone()}).collect();
+        let indexed_chats: HashSet<UiChat> = res.indexed_chats.into_iter().map(|c| UiChat::from_info(c)).collect();
+        let available_chats: Vec<UiChat> = res.available_chats.into_iter().map(|c| UiChat::from_info(c)).collect();
         AppData {
             indexed_chats,
             available_chats,
             selected_chats: HashSet::new(),
+            selected_topics: HashMap::new(),
             task: BackGroundTask::None,
             active_modal: UiModal::None,
             input: String::new()
@@ -190,9 +192,21 @@ impl App {
                 match &mut app_data.task {
                     BackGroundTask::AddingChats(p) => {
                         if p.is_none() {
-                            let pd = self.backend.set_working_chats(&app_data.selected_chats);
+                            let mut chats = HashMap::new();
+                            for chat in &app_data.selected_chats {
+                                if let Some(topics) = app_data.selected_topics.get(&chat) {
+                                    let topics: HashSet<TopicId> = topics.iter().map(|v| v.id.clone()).collect();
+                                    chats.insert(chat.clone(), Some(topics.clone()));
+                                } else {
+                                    chats.insert(chat.clone(), None);
+                                }
+                            }
+
+                            println!("Chats: {:?}", chats);
+                            let pd = self.backend.set_working_chats(chats);
                             if pd.is_ok() {
                                 app_data.selected_chats.clear();
+                                app_data.selected_topics.clear();
                                 *p = Some(pd.unwrap());
                             }
                         } else {
@@ -393,7 +407,17 @@ pub fn draw_chats_panel(ui: &mut egui::Ui, app_data: &mut AppData) {
                                     for chat in &app_data.indexed_chats {
                                         egui::Frame::new()
                                             .show(ui, |ui| {
-                                                ui.label(&chat.name)
+                                                egui::Frame::new()
+                                                    .show(ui, |ui| {
+                                                        ui.label(&chat.name);
+                                                        if let Some(topics) = &chat.topics {
+                                                            ui.separator();
+                                                            for topic in topics {
+                                                                ui.label(&topic.name);
+                                                            }
+                                                        }
+                                                    });
+                                                
                                             });
                                     }
                                 }
@@ -428,6 +452,7 @@ fn draw_add_chats(ui: &mut egui::Ui, app_data: &mut AppData) {
                             if ui.button("Cancel").clicked() {
                                 app_data.active_modal = UiModal::None;
                                 app_data.selected_chats.clear();
+                                app_data.selected_topics.clear();
                             }
                         });
                     });
@@ -446,7 +471,7 @@ fn draw_add_chats(ui: &mut egui::Ui, app_data: &mut AppData) {
                     } else {
                         &filtered_chats
                     };
-
+                    
                     let rows = chats.len();
 
                     ui.separator();
@@ -493,20 +518,71 @@ fn draw_add_chats(ui: &mut egui::Ui, app_data: &mut AppData) {
                                             ui.with_layout(
                                                    egui::Layout::right_to_left(egui::Align::Center),
                                                    |ui| {
-                                                       if selected {
-                                                           if ui.button("Cancel").clicked() {
-                                                               app_data.selected_chats.remove(&chat.id);
-                                                           }
+                                                        if let Some(topics) = &chat.topics {
+                                                            ui.menu_button("Show topics", |ui| {
+                                                                ui.set_min_width(220.0);
+                                                                egui::ScrollArea::vertical().max_height(250.0).show(ui, |ui| {
+                                                                    let mut remove_topics_entry = false;
+                                                                    if let Some(sel) = app_data.selected_topics.get_mut(&chat.id) {
+                                                                        for topic in topics {
+                                                                            ui.horizontal( |ui| {
+                                                                                ui.label(&topic.name);
+                                                                                if sel.contains(&topic) {
+                                                                                    if ui.button("Cancel").clicked() {
+                                                                                        sel.remove(topic); 
+                                                                                        if sel.is_empty() {
+                                                                                            remove_topics_entry = true;
+                                                                                            app_data.selected_chats.remove(&chat.id);
+                                                                                        }
+                                                                                    }
+                                                                                } else {
+                                                                                    if ui.button("Select").clicked() {
+                                                                                        sel.insert(topic.clone());
+                                                                                        
+                                                                                    }
+                                                                                }
+                                                                                
+                                                                            });
+                                                                            
+                                                                        }
+                                                                    } else {
+                                                                        for topic in topics {
+                                                                            ui.horizontal( |ui| {
+                                                                                ui.label(&topic.name);
+                                                                                if ui.button("Select").clicked() {
+                                                                                    let mut h_set = HashSet::new();
+                                                                                    h_set.insert(topic.clone());
+                                                                                    app_data.selected_topics.insert(chat.id.clone(), h_set);
+                                                                                    if !app_data.selected_chats.contains(&chat.id) {
+                                                                                        app_data.selected_chats.insert(chat.id.clone());
+                                                                                    }
+                                                                                }
+                                                                            });
+                                                                            
+                                                                        }
+                                                                    }
+                                                                    if remove_topics_entry {
+                                                                        app_data.selected_topics.remove(&chat.id);
+                                                                    }
+                                                               });
+                                                           });
                                                        } else {
-                                                           if app_data.indexed_chats.contains(chat) {
-                                                               ui.label("Indexed");
-                                                           } else {
-                                                               if ui.button("Select").clicked() {
-                                                                   app_data.selected_chats.insert(chat.id.clone());
+                                                           if selected {
+                                                               if ui.button("Cancel").clicked() {
+                                                                   app_data.selected_chats.remove(&chat.id);
                                                                }
-                                                               
+                                                           } else {
+                                                               if app_data.indexed_chats.contains(chat) {
+                                                                   ui.label("Indexed");
+                                                               } else {
+                                                                   if ui.button("Select").clicked() {
+                                                                       app_data.selected_chats.insert(chat.id.clone());
+                                                                   }
+                                                                   
+                                                               }
                                                            }
                                                        }
+                                                       
                                                        
                                                    },
                                                );

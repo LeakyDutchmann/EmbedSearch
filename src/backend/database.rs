@@ -4,8 +4,7 @@ use libsql::{Connection, Builder};
 use std::collections::HashSet;
 
 use crate::backend::embedding::DbIndexedImage;
-use crate::backend::types::{ChatId, MessageId};
-use crate::backend::workingchat::TopicId;
+use crate::backend::types::{ChatId, MessageId, TopicId};
 
 pub struct Database {
     connection: Connection

@@ -1,10 +1,15 @@
 use grammers_session::types::PeerRef;
 use anyhow::anyhow;
 use image::DynamicImage;
-use crate::backend::workingchat::TopicId;
 
 #[derive(Eq, Hash, PartialEq, Clone, Debug)]
 pub struct ChatId {
+    pub id: i64
+}
+
+
+#[derive(Debug, PartialEq, Eq, Hash, Clone)]
+pub struct TopicId {
     pub id: i64
 }
 

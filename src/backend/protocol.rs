@@ -62,13 +62,13 @@ pub struct Pending<T> {
 }
 
 impl<T> Pending<T> {
-    pub fn try_take(&mut self) -> Option<T> {
+    pub fn try_take(&mut self) -> Option<anyhow::Result<T>> {
         if let Ok(val) = self.receiver.try_recv() {
             match val {
-                Ok(v) => return Some(v),
+                Ok(v) => return Some(Ok(v)),
                 Err(e) => {
                     println!("Backend operation failed: {e}");
-                    return None;
+                    return Some(Err(anyhow!("Backend operation failed: {e}")));
                 }
             }
         }

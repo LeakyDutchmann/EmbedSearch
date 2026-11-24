@@ -4,8 +4,8 @@ use super::InitializeResponse;
 use super::types::UiChat;
 
 pub struct AppData {
-    indexed_chats: HashSet<UiChat>,
-    available_chats: Vec<UiChat>,
+    pub indexed_chats: HashSet<UiChat>,
+    pub available_chats: Vec<UiChat>,
 }
 
 impl AppData {
@@ -16,5 +16,8 @@ impl AppData {
             indexed_chats,
             available_chats,
         }
+    }
+    pub fn is_chat_indexed(&self, chat: &UiChat) -> bool {
+        self.indexed_chats.contains(chat)
     }
 }

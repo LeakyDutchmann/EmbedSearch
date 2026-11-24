@@ -8,6 +8,7 @@ pub mod enums;
 use crate::backend::types::{ChatId, TopicId};
 use crate::backend::protocol::{Pending, InitializeResponse, BackEnd};
 use super::task::drive;
+use super::widgets::draw_avatar_placeholder;
 
 use selection::Selection;
 use data::AppData;
@@ -24,6 +25,17 @@ pub struct MainScreen {
 }
 
 impl MainScreen {
+    pub fn from_init_resp(resp: InitializeResponse) -> Self {
+        let app_data = AppData::from_init(resp);
+        MainScreen {
+            app_data,
+            selection: Selection::init(),
+            modal: UiModal::None,
+            error: None,
+            task: BackGroundTask::None,
+            input: String::new() 
+        }
+    }
     fn step(&mut self, backend: &BackEnd) -> anyhow::Result<()> {
         match &mut self.task {
             BackGroundTask::AddingChats(p) => {
@@ -65,8 +77,8 @@ impl MainScreen {
     }
     pub fn draw(&mut self, ui: &mut egui::Ui) {
         if self.modal == UiModal::AddChats {
-            draw_add_chats(ui, &mut self.app_data);
+            self.draw_add_chats(ui);
         }
-        draw_chats_panel(ui, &mut self.app_data);
+        self.draw_chats_panel(ui);
     }
 }

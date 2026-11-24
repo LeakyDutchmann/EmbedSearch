@@ -151,7 +151,8 @@ impl TelegramClient {
                 let mut x = 0;
 
                 for (topic_id, topic) in topics {
-                    println!("Lading from topic: {}", topic.name);
+                    println!("Topic {}: {} already indexed", topic.name, topic.indexed_images.len());
+                    println!("Loading from topic: {}", topic.name);
                     let peer = chat.peer_ref;
                     let mut ids = vec![];
                     let mut offset_id = 0;

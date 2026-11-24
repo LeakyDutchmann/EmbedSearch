@@ -1,5 +1,5 @@
 use crate::backend::{
-    self, database::Database, embedding::{DbIndexedImage, Embedder, IndexedImage}, telegram::TelegramClient, types::{ChatId, MessageId, TopicId}, workingchat::{Chat, ChatContents, Topic, WorkingChat}
+    self, database::Database, embedding::{DbIndexedImage, Embedder, IndexedImage}, telegram::TelegramClient, types::{ChatId, MessageId, TopicId}, workingchat::{Chat, ChatContents, Topic, WorkingChat, WorkingTopic}
 };
 
 use anyhow::anyhow;
@@ -99,7 +99,25 @@ impl SearchEngine {
     pub fn set_working_chats(&mut self, mut chats: Vec<Chat>) {
         while let Some(chat) = chats.pop() {
             println!("Setting {:?} as wroking chat", chat);
-            self.working_chats.insert(chat.chat_id.clone(), WorkingChat::from_chat(chat));
+            if let Some(w_chat) = self.working_chats.get_mut(&chat.chat_id) {
+                match &mut w_chat.contents {
+                    ChatContents::Images(_) => {
+                        continue;
+                    },
+                    ChatContents::Topics(w_topics) => {
+                        if let Some(topics) = chat.topics {
+                            for topic in topics {
+                                if !w_topics.contains_key(&topic.id) {
+                                    let id = topic.id.clone();
+                                    w_topics.insert(id, WorkingTopic::from_topic(&topic));
+                                }
+                            }
+                        }
+                    }
+                }
+            } else {
+                self.working_chats.insert(chat.chat_id.clone(), WorkingChat::from_chat(chat));
+            }
         }
     }
     pub async fn load_indexed(&mut self) -> anyhow::Result<()> {

@@ -37,7 +37,7 @@ pub struct WorkingTopic {
 }
 
 impl WorkingTopic {
-    fn from_topic(t: &Topic) -> Self {
+    pub fn from_topic(t: &Topic) -> Self {
         WorkingTopic {
             name:  t.name.clone(), 
             indexed_images: HashMap::new()

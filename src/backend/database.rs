@@ -1,7 +1,7 @@
 use std::path::Path;
 use libsql::params;
 use libsql::{Connection, Builder};
-use std::collections::HashSet;
+use std::collections::{HashSet, HashMap};
 
 use crate::backend::embedding::DbIndexedImage;
 use crate::backend::types::{ChatId, MessageId, TopicId};
@@ -58,19 +58,22 @@ impl Database {
 
         Ok(result)
     }
-    pub async fn get_indexed_chat_ids(&self) -> anyhow::Result<HashSet<ChatId>>{
-        let mut rows = self.connection.query("SELECT chat_id FROM images", ()).await?;
+    pub async fn get_indexed_scopes(&self) -> anyhow::Result<HashMap<ChatId, HashSet<TopicId>>>{
+        let mut rows = self.connection.query("SELECT chat_id, topic_id FROM images", ()).await?;
         
-        let mut result = HashSet::new();
-        
+        let mut map: HashMap<ChatId, HashSet<TopicId>> = HashMap::new();
         while let Some(row) = rows.next().await? {
             let id: i64 = row.get(0)?;
+            let topic_id: Option<i64> = row.get(1)?;
+
+            let e = map.entry(ChatId {id}).or_default();
             println!("Loaded id {}", id);
-            
-            result.insert(ChatId{id});
+            if let Some(t_id) = topic_id {
+                e.insert(TopicId { id: t_id});
+            }
         }
 
-        Ok(result)
+        Ok(map)
     }
     pub async fn save_indexed(&mut self, indexed: &Vec<DbIndexedImage>) -> anyhow::Result<()> {
         let trans = self.connection.transaction().await?;

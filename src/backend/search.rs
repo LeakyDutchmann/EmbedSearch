@@ -40,15 +40,14 @@ impl SearchEngine {
         })
     }
     pub async fn restore_environment(&mut self) -> anyhow::Result<()>{
-        let chat_ids = self.database.get_indexed_chat_ids().await?;
+        let scopes = self.database.get_indexed_scopes().await?;
 
-        let chats = self.telegram_client.get_available_chats().await?;
-
-        let filtered_chats: Vec<Chat> = chats.into_iter().filter(|c| chat_ids.contains(&c.chat_id)).collect();
-        for chat in filtered_chats.into_iter() {
-            let id = chat.chat_id.clone();
-            let w_chat = WorkingChat::from_chat(chat);
-            self.working_chats.insert(id, w_chat);
+        for mut chat in self.telegram_client.get_available_chats().await? {
+            let Some(topic_ids) = scopes.get(&chat.chat_id) else {continue};
+            if let Some(topics) = &mut chat.topics {
+                topics.retain(|t| topic_ids.contains(&t.id));
+            }
+            self.working_chats.insert(chat.chat_id.clone(), WorkingChat::from_chat(chat));
         }
         
         Ok(())

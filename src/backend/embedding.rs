@@ -3,7 +3,7 @@ use ndarray::{Array4, Array2};
 use ort::value::Tensor;
 use std::path::Path;
 
-use crate::backend::types::{ChatId, MessageId, PendingImage};
+use crate::backend::types::{ChatId, MessageId, PendingImage, TopicId};
 
 pub struct IndexedImage {
     pub embedding: Box<[f32]>,
@@ -12,12 +12,14 @@ pub struct IndexedImage {
 pub struct DbIndexedImage {
     pub chat_id: ChatId,
     pub msg_id: MessageId,
+    pub topic_id: Option<TopicId>,
     pub embedding: Box<[f32]>,
 }
 
 pub struct RawIndexedImage {
     pub msg_id: MessageId,
     pub embedding: Box<[f32]>,
+    pub topic_id: Option<TopicId>,
 }
 
 pub struct Embedder {
@@ -43,6 +45,7 @@ impl Embedder {
             embeds.push(RawIndexedImage {
                 embedding,
                 msg_id: image.msg_id,
+                topic_id: image.topic_id,
             });
             x += 1;
             println!("Indexed {}", x);

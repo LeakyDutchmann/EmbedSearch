@@ -8,6 +8,12 @@ pub struct ChatId {
 }
 
 
+#[derive(Debug, PartialEq, Eq, Hash, Clone)]
+pub struct TopicId {
+    pub id: i64
+}
+
+
 #[derive(Eq, Hash, PartialEq, Clone)]
 pub struct MessageId {
     pub id: i32
@@ -27,4 +33,5 @@ impl ChatId {
 pub struct PendingImage {
     pub img: DynamicImage,
     pub msg_id: MessageId,
+    pub topic_id: Option<TopicId>
 }

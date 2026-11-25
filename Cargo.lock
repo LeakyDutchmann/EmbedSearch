@@ -1458,6 +1458,7 @@ dependencies = [
  "grammers-client",
  "grammers-mtsender",
  "grammers-session",
+ "grammers-tl-types",
  "image",
  "libsql",
  "ndarray",
